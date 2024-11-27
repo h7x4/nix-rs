@@ -405,6 +405,7 @@ pub fn getrusage(who: UsageWho) -> Result<Usage> {
 
 libc_enum! {
     /// The priority class to be used with [`libc::getpriority`] and [`libc::setpriority`].
+    #[cfg(all(feature = "user", feature = "process"))]
     // PRIO_* is __priority_which_t in linux gnu
     #[cfg_attr(all(target_os = "linux", target_env = "gnu"), repr(u32))]
     #[cfg_attr(not(all(target_os = "linux", target_env = "gnu")), repr(i32))]
@@ -424,6 +425,7 @@ libc_enum! {
 /// Wrapper type arguments requesting or setting the priority of a process, process group or user
 ///
 /// Refer to [`getpriority`] and [`setpriority`] for usage.
+#[cfg(all(feature = "user", feature = "process"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PriorityEntity {
     /// Priority value of a process.
@@ -465,6 +467,7 @@ pub enum PriorityEntity {
 /// [`PriorityEntity`]: enum.PriorityEntity.html
 ///
 /// Note: `getpriority` provides a safe wrapper to libc's `getpriority`.
+#[cfg(all(feature = "user", feature = "process"))]
 pub fn getpriority(entity: PriorityEntity) -> Result<c_int> {
     let (which, who): (PrioClass, id_t) = match entity {
         PriorityEntity::Process(pid) => (PrioClass::PRIO_PROCESS, pid.as_raw() as c_uint),
@@ -515,6 +518,7 @@ pub fn getpriority(entity: PriorityEntity) -> Result<c_int> {
 /// [`PriorityEntity`]: enum.PriorityEntity.html
 ///
 /// Note: `setpriority` provides a safe wrapper to libc's `setpriority`.
+#[cfg(all(feature = "user", feature = "process"))]
 pub fn setpriority(entity: PriorityEntity, value: c_int) -> Result<()> {
     let (which, who): (PrioClass, c_uint) = match entity {
         PriorityEntity::Process(pid) => (PrioClass::PRIO_PROCESS, pid.as_raw() as c_uint),
