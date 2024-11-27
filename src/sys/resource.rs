@@ -1,13 +1,19 @@
 //! Configure the process resource limits.
 use cfg_if::cfg_if;
-use libc::{c_int, c_long, rusage, c_uint, id_t};
+use libc::{c_int, c_long, rusage};
 
-#[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "uclibc")))]
+#[cfg(all(feature = "user", feature = "process", target_os = "linux", any(target_env = "gnu", target_env = "uclibc")))]
 use libc::__priority_which_t;
+
+#[cfg(all(feature = "user", feature = "process"))]
+use libc::{c_uint, id_t};
 
 use crate::errno::Errno;
 use crate::sys::time::TimeVal;
+
+#[cfg(all(feature = "user", feature = "process"))]
 use crate::unistd::{Gid, Pid, Uid};
+
 use crate::Result;
 pub use libc::rlim_t;
 pub use libc::RLIM_INFINITY;
