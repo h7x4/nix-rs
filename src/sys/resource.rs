@@ -402,7 +402,7 @@ pub fn getrusage(who: UsageWho) -> Result<Usage> {
 
 libc_enum! {
     /// The priority class to be used with [`libc::getpriority`] and [`libc::setpriority`].
-    #[repr(u32)]
+    #[repr(i32)]
     #[non_exhaustive]
     pub enum PrioClass {
         /// The priority of the process.
@@ -467,7 +467,7 @@ pub fn getpriority(entity: PriorityEntity) -> Result<c_int> {
         PriorityEntity::User(uid) => (PrioClass::PRIO_USER, uid.into()),
     };
 
-    let res = unsafe { libc::getpriority(which as c_uint, who) };
+    let res = unsafe { libc::getpriority(which as c_int, who) };
     Errno::result(res)
 }
 
@@ -509,6 +509,6 @@ pub fn setpriority(entity: PriorityEntity, value: c_int) -> Result<()> {
         PriorityEntity::User(uid) => (PrioClass::PRIO_USER, uid.into()),
     };
 
-    let res = unsafe { libc::setpriority(which as c_uint, who, value) };
+    let res = unsafe { libc::setpriority(which as c_int, who, value) };
     Errno::result(res).map(drop)
 }
