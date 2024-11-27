@@ -1,6 +1,9 @@
 //! Configure the process resource limits.
 use cfg_if::cfg_if;
-use libc::{c_int, c_long, rusage, c_uint};
+use libc::{c_int, c_long, rusage, c_uint, id_t};
+
+#[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "uclibc")))]
+use libc::__priority_which_t;
 
 use crate::errno::Errno;
 use crate::sys::time::TimeVal;
@@ -402,7 +405,9 @@ pub fn getrusage(who: UsageWho) -> Result<Usage> {
 
 libc_enum! {
     /// The priority class to be used with [`libc::getpriority`] and [`libc::setpriority`].
-    #[repr(i32)]
+    // PRIO_* is __priority_which_t in linux gnu
+    #[cfg_attr(all(target_os = "linux", target_env = "gnu"), repr(u32))]
+    #[cfg_attr(not(all(target_os = "linux", target_env = "gnu")), repr(i32))]
     #[non_exhaustive]
     pub enum PrioClass {
         /// The priority of the process.
@@ -461,13 +466,21 @@ pub enum PriorityEntity {
 ///
 /// Note: `getpriority` provides a safe wrapper to libc's `getpriority`.
 pub fn getpriority(entity: PriorityEntity) -> Result<c_int> {
-    let (which, who): (PrioClass, c_uint) = match entity {
+    let (which, who): (PrioClass, id_t) = match entity {
         PriorityEntity::Process(pid) => (PrioClass::PRIO_PROCESS, pid.as_raw() as c_uint),
         PriorityEntity::Group(gid) => (PrioClass::PRIO_PGRP, gid.into()),
         PriorityEntity::User(uid) => (PrioClass::PRIO_USER, uid.into()),
     };
 
-    let res = unsafe { libc::getpriority(which as c_int, who) };
+    cfg_if! {
+        if #[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "uclibc")))] {
+            let res = unsafe { libc::getpriority(which as __priority_which_t, who) };
+        } else {
+            let res = unsafe { libc::getpriority(which as c_int, who) };
+        }
+    }
+
+    // let res = unsafe { libc::getpriority(which as id_t, who) };
     Errno::result(res)
 }
 
@@ -509,6 +522,15 @@ pub fn setpriority(entity: PriorityEntity, value: c_int) -> Result<()> {
         PriorityEntity::User(uid) => (PrioClass::PRIO_USER, uid.into()),
     };
 
-    let res = unsafe { libc::setpriority(which as c_int, who, value) };
+    cfg_if! {
+        if #[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "uclibc")))] {
+            let res = unsafe { libc::setpriority(which as __priority_which_t, who, value) };
+        } else {
+            let res = unsafe { libc::setpriority(which as c_int, who, value) };
+        }
+    }
+
+    // let res = unsafe { libc::setpriority(which as id_t, who, value) };
+
     Errno::result(res).map(drop)
 }
