@@ -2,8 +2,18 @@
 use cfg_if::cfg_if;
 use libc::{c_int, c_long, rusage};
 
+#[cfg(all(feature = "user", feature = "process", target_os = "linux", any(target_env = "gnu", target_env = "uclibc")))]
+use libc::__priority_which_t;
+
+#[cfg(all(feature = "user", feature = "process"))]
+use libc::{c_uint, id_t};
+
 use crate::errno::Errno;
 use crate::sys::time::TimeVal;
+
+#[cfg(all(feature = "user", feature = "process"))]
+use crate::unistd::{Gid, Pid, Uid};
+
 use crate::Result;
 pub use libc::rlim_t;
 pub use libc::RLIM_INFINITY;
@@ -397,4 +407,140 @@ pub fn getrusage(who: UsageWho) -> Result<Usage> {
         let res = libc::getrusage(who as c_int, rusage.as_mut_ptr());
         Errno::result(res).map(|_| Usage(rusage.assume_init()))
     }
+}
+
+libc_enum! {
+    /// The priority class to be used with [`libc::getpriority`] and [`libc::setpriority`].
+    #[cfg(all(feature = "user", feature = "process"))]
+    // PRIO_* is __priority_which_t in linux gnu
+    #[cfg_attr(all(target_os = "linux", target_env = "gnu"), repr(u32))]
+    #[cfg_attr(not(all(target_os = "linux", target_env = "gnu")), repr(i32))]
+    #[non_exhaustive]
+    pub enum PrioClass {
+        /// The priority of the process.
+        PRIO_PROCESS,
+
+        /// The priority of the process group.
+        PRIO_PGRP,
+
+        /// The priority of the user.
+        PRIO_USER,
+    }
+}
+
+/// Wrapper type arguments requesting or setting the priority of a process, process group or user
+///
+/// Refer to [`getpriority`] and [`setpriority`] for usage.
+#[cfg(all(feature = "user", feature = "process"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriorityEntity {
+    /// Priority value of a process.
+    Process(Pid),
+    /// Priority value of a process group.
+    Group(Gid),
+    /// Priority value of a user.
+    User(Uid),
+}
+
+/// Get the priority of a process, process group or user
+///
+/// The priority value is a signed integer, with higher values representing lower
+/// priority. This value usually ranges from `-20` to `19`, but may vary depending on
+/// the platform. This value is often referred to as the "nice" value.
+///
+/// # Parameters
+///
+/// * `entity`: The [`PriorityEntity`] that we want to get the priority of.
+///
+/// # Examples
+///
+/// ```
+/// use nix::sys::resource::{getpriority, PriorityEntity};
+///
+/// let pid = nix::unistd::getpid();
+/// let priority = getpriority(PriorityEntity::Process(pid)).unwrap();
+/// println!("current priority: {}", priority);
+/// ```
+///
+/// # References
+///
+/// * [getpriority(2)](https://pubs.opengroup.org/onlinepubs/9699919799/functions/getpriority.html)
+/// * [Linux](https://man7.org/linux/man-pages/man2/getpriority.2.html)
+/// * [FreeBSD](https://www.freebsd.org/cgi/man.cgi?query=getpriority)
+/// * [NetBSD](https://man.netbsd.org/getpriority.2)
+/// * [MacOS](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/getpriority.2.html)
+///
+/// [`PriorityEntity`]: enum.PriorityEntity.html
+///
+/// Note: `getpriority` provides a safe wrapper to libc's `getpriority`.
+#[cfg(all(feature = "user", feature = "process"))]
+pub fn getpriority(entity: PriorityEntity) -> Result<c_int> {
+    let (which, who): (PrioClass, id_t) = match entity {
+        PriorityEntity::Process(pid) => (PrioClass::PRIO_PROCESS, pid.as_raw() as c_uint),
+        PriorityEntity::Group(gid) => (PrioClass::PRIO_PGRP, gid.into()),
+        PriorityEntity::User(uid) => (PrioClass::PRIO_USER, uid.into()),
+    };
+
+    cfg_if! {
+        if #[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "uclibc")))] {
+            let res = unsafe { libc::getpriority(which as __priority_which_t, who) };
+        } else {
+            let res = unsafe { libc::getpriority(which as c_int, who) };
+        }
+    }
+
+    // let res = unsafe { libc::getpriority(which as id_t, who) };
+    Errno::result(res)
+}
+
+/// Set the priority of a process, process group or user
+///
+/// The priority value is a signed integer, with higher values representing lower
+/// priority. This value usually ranges from `-20` to `19`, but may vary depending on
+/// the platform. This value is often referred to as the "nice" value.
+///
+/// # Parameters
+///
+/// * `entity`: The [`PriorityEntity`] that we want to set the priority of.
+/// * `value`: The new priority value.
+///
+/// # Examples
+///
+/// ```
+/// use nix::sys::resource::{setpriority, PriorityEntity};
+///
+/// let pid = nix::unistd::getpid();
+/// setpriority(PriorityEntity::Process(pid), 10).unwrap();
+/// ```
+///
+/// # References
+///
+/// * [setpriority(2)](https://pubs.opengroup.org/onlinepubs/9699919799/functions/setpriority.html)
+/// * [Linux](https://man7.org/linux/man-pages/man2/setpriority.2.html)
+/// * [FreeBSD](https://www.freebsd.org/cgi/man.cgi?query=setpriority)
+/// * [NetBSD](https://man.netbsd.org/setpriority.2)
+/// * [MacOS](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/setpriority.2.html)
+///
+/// [`PriorityEntity`]: enum.PriorityEntity.html
+///
+/// Note: `setpriority` provides a safe wrapper to libc's `setpriority`.
+#[cfg(all(feature = "user", feature = "process"))]
+pub fn setpriority(entity: PriorityEntity, value: c_int) -> Result<()> {
+    let (which, who): (PrioClass, c_uint) = match entity {
+        PriorityEntity::Process(pid) => (PrioClass::PRIO_PROCESS, pid.as_raw() as c_uint),
+        PriorityEntity::Group(gid) => (PrioClass::PRIO_PGRP, gid.into()),
+        PriorityEntity::User(uid) => (PrioClass::PRIO_USER, uid.into()),
+    };
+
+    cfg_if! {
+        if #[cfg(all(target_os = "linux", any(target_env = "gnu", target_env = "uclibc")))] {
+            let res = unsafe { libc::setpriority(which as __priority_which_t, who, value) };
+        } else {
+            let res = unsafe { libc::setpriority(which as c_int, who, value) };
+        }
+    }
+
+    // let res = unsafe { libc::setpriority(which as id_t, who, value) };
+
+    Errno::result(res).map(drop)
 }
